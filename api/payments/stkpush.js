@@ -173,6 +173,10 @@ export default async function handler(req, res) {
 
     } catch (error) {
         console.error('STK Push error:', error);
-        return res.status(500).json({ success: false, message: 'Internal server error' });
+        return res.status(500).json({
+            success: false,
+            message: 'Internal server error: ' + (error.message || String(error)),
+            stack: error.stack
+        });
     }
 }
