@@ -26,8 +26,17 @@ async function getAccessToken() {
         }
     });
 
-    const data = await response.json();
-    return data.access_token;
+    const responseText = await response.text();
+    if (!response.ok) {
+        throw new Error(`M-Pesa Auth Failed: ${response.status} ${responseText}`);
+    }
+
+    try {
+        const data = JSON.parse(responseText);
+        return data.access_token;
+    } catch (e) {
+        throw new Error(`Invalid JSON from M-Pesa Auth: ${responseText}`);
+    }
 }
 
 function generateTransactionId() {
@@ -107,10 +116,24 @@ export default async function handler(req, res) {
             tillNumber = userTill.till_number;
         }
 
+
+        // Check for missing env vars
+        if (!MPESA_CONSUMER_KEY || !MPESA_CONSUMER_SECRET) {
+            console.error('Missing M-Pesa Environment Variables');
+            return res.status(500).json({ success: false, message: 'Server configuration error: Missing M-Pesa credentials' });
+        }
+
         // Get M-Pesa access token (always uses SwiftPay's credentials)
-        const accessToken = await getAccessToken();
+        let accessToken;
+        try {
+            accessToken = await getAccessToken();
+        } catch (authErr) {
+            console.error('Authentication Error:', authErr);
+            return res.status(500).json({ success: false, message: 'Failed to authenticate with M-Pesa: ' + authErr.message });
+        }
+
         if (!accessToken) {
-            return res.status(500).json({ success: false, message: 'Failed to authenticate with M-Pesa' });
+            return res.status(500).json({ success: false, message: 'Failed to obtain M-Pesa access token' });
         }
 
         // Generate transaction ID and timestamp
@@ -119,6 +142,8 @@ export default async function handler(req, res) {
         const password = Buffer.from(`${MPESA_SHORTCODE}${MPESA_PASSKEY}${timestamp}`).toString('base64');
 
         // STK Push request - PartyB is the user's Till number
+        console.log('Initiating STK Push to:', cleanPhone);
+
         const stkResponse = await fetch('https://api.safaricom.co.ke/mpesa/stkpush/v1/processrequest', {
             method: 'POST',
             headers: {
@@ -140,9 +165,18 @@ export default async function handler(req, res) {
             })
         });
 
-        const stkData = await stkResponse.json();
+        const stkText = await stkResponse.text();
+        console.log('STK Push Response Status:', stkResponse.status);
+        console.log('STK Push Response Body:', stkText);
 
-        if (stkData.ResponseCode === '0') {
+        let stkData;
+        try {
+            stkData = JSON.parse(stkText);
+        } catch (e) {
+            throw new Error(`Failed to parse STK response: ${stkText}`);
+        }
+
+        if (stkResponse.ok && stkData.ResponseCode === '0') {
             // Save transaction to database
             await supabase
                 .from('transactions')
@@ -167,7 +201,8 @@ export default async function handler(req, res) {
         } else {
             return res.status(400).json({
                 success: false,
-                message: stkData.errorMessage || stkData.ResponseDescription || 'STK Push failed'
+                message: stkData.errorMessage || stkData.ResponseDescription || 'STK Push failed',
+                details: stkData
             });
         }
 
