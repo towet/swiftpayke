@@ -19,28 +19,45 @@ const CALLBACK_BASE_URL = process.env.MPESA_CALLBACK_URL;
 async function getAccessToken() {
     const auth = Buffer.from(`${MPESA_CONSUMER_KEY}:${MPESA_CONSUMER_SECRET}`).toString('base64');
 
-    const authUrl = 'https://api.safaricom.co.ke/oauth/v1/generate?grant_type=client_credentials';
+    // 1. Try LIVE URL first
+    try {
+        const liveUrl = 'https://api.safaricom.co.ke/oauth/v1/generate?grant_type=client_credentials';
+        console.log('M-Pesa Auth: Attempting LIVE URL:', liveUrl);
 
-    console.log('M-Pesa Auth: Connecting to LIVE URL:', authUrl);
-    console.log('M-Pesa Auth: Using Key length:', MPESA_CONSUMER_KEY ? MPESA_CONSUMER_KEY.length : 0);
+        const response = await fetch(liveUrl, {
+            method: 'GET',
+            headers: { 'Authorization': `Basic ${auth}` }
+        });
 
-    const response = await fetch(authUrl, {
-        method: 'GET',
-        headers: {
-            'Authorization': `Basic ${auth}`
+        if (response.ok) {
+            const data = await response.json();
+            return { token: data.access_token, isSandbox: false };
         }
-    });
 
-    const responseText = await response.text();
-    if (!response.ok) {
-        throw new Error(`M-Pesa Auth Failed: ${response.status} ${responseText}`);
+        console.warn(`M-Pesa Auth: LIVE failed with status ${response.status}. Trying SANDBOX...`);
+    } catch (e) {
+        console.warn('M-Pesa Auth: LIVE connection error. Trying SANDBOX...', e);
     }
 
+    // 2. Fallback to SANDBOX URL
     try {
+        const sandboxUrl = 'https://sandbox.safaricom.co.ke/oauth/v1/generate?grant_type=client_credentials';
+        console.log('M-Pesa Auth: Attempting SANDBOX URL:', sandboxUrl);
+
+        const response = await fetch(sandboxUrl, {
+            method: 'GET',
+            headers: { 'Authorization': `Basic ${auth}` }
+        });
+
+        const responseText = await response.text();
+        if (!response.ok) {
+            throw new Error(`Auth Failed (Both Live & Sandbox): ${response.status} ${responseText}`);
+        }
+
         const data = JSON.parse(responseText);
-        return data.access_token;
+        return { token: data.access_token, isSandbox: true };
     } catch (e) {
-        throw new Error(`Invalid JSON from M-Pesa Auth: ${responseText}`);
+        throw new Error(`M-Pesa Auth Final Failure: ${e.message}`);
     }
 }
 
