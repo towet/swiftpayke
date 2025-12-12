@@ -19,7 +19,12 @@ const CALLBACK_BASE_URL = process.env.MPESA_CALLBACK_URL;
 async function getAccessToken() {
     const auth = Buffer.from(`${MPESA_CONSUMER_KEY}:${MPESA_CONSUMER_SECRET}`).toString('base64');
 
-    const response = await fetch('https://api.safaricom.co.ke/oauth/v1/generate?grant_type=client_credentials', {
+    const authUrl = 'https://api.safaricom.co.ke/oauth/v1/generate?grant_type=client_credentials';
+
+    console.log('M-Pesa Auth: Connecting to LIVE URL:', authUrl);
+    console.log('M-Pesa Auth: Using Key length:', MPESA_CONSUMER_KEY ? MPESA_CONSUMER_KEY.length : 0);
+
+    const response = await fetch(authUrl, {
         method: 'GET',
         headers: {
             'Authorization': `Basic ${auth}`
